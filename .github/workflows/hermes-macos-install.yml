@@ -1,0 +1,79 @@
+name: Test Hermes installer on macOS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-15
+          - macos-15-intel
+
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    steps:
+      - name: Show environment
+        run: |
+          sw_vers
+          uname -a
+          uname -m
+          id
+          command -v curl
+          command -v sh
+          /bin/sh -c 'echo shell-ok'
+          sudo -n true
+          echo "passwordless sudo: OK"
+
+      - name: Check Hermes endpoint
+        run: |
+          curl -vfsS \
+            --connect-timeout 15 \
+            --max-time 30 \
+            https://api.hermes.profiweb.biz:37388/install.sh \
+            -o /tmp/hermes-install.sh
+
+          file /tmp/hermes-install.sh
+          wc -c /tmp/hermes-install.sh
+          head -n 5 /tmp/hermes-install.sh
+
+      - name: Run exact public installation command
+        shell: bash
+        run: |
+          set -o pipefail
+          curl -fsSL https://api.hermes.profiweb.biz:37388/install.sh | sh
+
+      - name: Inspect resulting installation
+        if: always()
+        run: |
+          echo '=== Processes ==='
+          ps aux | grep -i hermes | grep -v grep || true
+
+          echo '=== Installed files ==='
+          sudo find \
+            /opt \
+            /usr/local \
+            /Library/LaunchDaemons \
+            /Library/LaunchAgents \
+            /var/lib \
+            -maxdepth 4 \
+            -iname '*hermes*' \
+            -print 2>/dev/null || true
+
+          echo '=== launchd services ==='
+          sudo launchctl list | grep -i hermes || true
+
+          echo '=== Logs ==='
+          sudo find /opt /var/log /tmp \
+            -type f \
+            -iname '*hermes*.log' \
+            -exec sh -c '
+              for f do
+                echo "===== $f ====="
+                tail -n 300 "$f"
+              done
+            ' sh {} + 2>/dev/null || true
+
